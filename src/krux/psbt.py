@@ -268,38 +268,43 @@ class PSBTSigner:
             return self.wallet.descriptor.owns(psbt_output)
         return False
 
+    def _owned_derivation(self, scope):
+        """Derivation path of an input or output the wallet descriptor owns.
+
+        Returns the first derivation that matches one of the descriptor's keys,
+        which is the one descriptor.owns() derives the script from and checks.
+        Any other entry in the PSBT is unchecked, so branch and address index
+        are only ever read from this one. Only called on a scope owns()
+        accepted, so there is always one.
+        """
+        derivations = list(scope.bip32_derivations.values()) + [
+            der for _, der in scope.taproot_bip32_derivations.values()
+        ]
+        keys = [key for key in self.wallet.descriptor.keys if key.is_extended]
+        return next(
+            der for der in derivations if any(key.check_derivation(der) for key in keys)
+        )
+
     def _classify_output(self, out_policy, out):
-        """Classify the output based on its properties and policy"""
+        """Classify the output based on its properties and policy.
 
-        address_from_my_wallet = False
-        address_is_change = False
+        Returns the output type and, for an output paying the wallet, its
+        address index (None for a spend).
+        """
+
         # if policy is the same - probably change
-        if out_policy == self.policy:
-            # double-check that it's change
-            # we already checked in get_cosigners and parse_multisig
-            # that pubkeys are generated from cosigners,
-            # and witness script is corresponding multisig
-            # so we only need to check that scriptpubkey is generated from
-            # witness script
-
-            address_from_my_wallet = self.address_belongs_to_descriptor(out)
-
-            if self.policy["type"] == P2TR:
-                if address_from_my_wallet:
-                    # _ = leafs
-                    _, der = list(out.taproot_bip32_derivations.values())[0]
-                    address_is_change = der.derivation[-2] == 1
-            else:
-                if address_from_my_wallet:
-                    address_is_change = (
-                        len(list(out.bip32_derivations.values())) > 0
-                        and list(out.bip32_derivations.values())[0].derivation[-2] == 1
-                    )
-        if address_is_change:
-            return CHANGE
-        if address_from_my_wallet:
-            return SELF_TRANSFER
-        return SPEND
+        # double-check that it's change
+        # we already checked in get_cosigners and parse_multisig
+        # that pubkeys are generated from cosigners,
+        # and witness script is corresponding multisig
+        # so we only need to check that scriptpubkey is generated from
+        # witness script
+        if out_policy == self.policy and self.address_belongs_to_descriptor(out):
+            derivation = self._owned_derivation(out).derivation
+            if derivation[-2] == 1:
+                return CHANGE, derivation[-1]
+            return SELF_TRANSFER, derivation[-1]
+        return SPEND, None
 
     def _btc_render(self, amount, prefix=" "):
         from .format import format_btc
@@ -341,10 +346,13 @@ class PSBTSigner:
 
         message_seq = []
         for i, out in enumerate(elements):
-            message_seq.append(
-                (("%d. " + title + " \n\n%s\n\n") % (i + 1, format_address(out[0])))
-                + self._btc_render(out[1], prefix="")
-            )
+            message = (
+                ("%d. " + title + " \n\n%s\n\n") % (i + 1, format_address(out[0]))
+            ) + self._btc_render(out[1], prefix="")
+            # Outputs paying the wallet also show their address index
+            if len(out) > 2:
+                message += "\n\n" + t("Index") + ": %d" % out[2]
+            message_seq.append(message)
         return message_seq
 
     def outputs(self):
@@ -384,7 +392,7 @@ class PSBTSigner:
                 out, self.psbt.tx.vout[i].script_pubkey, xpubs, origin_less_xpub
             )
             output_policy_count[out_policy["type"]] += 1
-            output_type = self._classify_output(out_policy, out)
+            output_type, index = self._classify_output(out_policy, out)
 
             if output_type == CHANGE:
                 change_list.append(
@@ -393,6 +401,7 @@ class PSBTSigner:
                             network=self.wallet.key.network
                         ),
                         self.psbt.tx.vout[i].value,
+                        index,
                     )
                 )
                 change_amount += self.psbt.tx.vout[i].value
@@ -403,6 +412,7 @@ class PSBTSigner:
                             network=self.wallet.key.network
                         ),
                         self.psbt.tx.vout[i].value,
+                        index,
                     )
                 )
                 self_amount += self.psbt.tx.vout[i].value

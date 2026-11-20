@@ -1681,7 +1681,8 @@ def test_outputs_singlesig(mocker, m5stickv, tdata):
                 + "\n\n₿ 0.10 000 000",
                 "1. Change: \n\n"
                 + format_address("tb1q9u62588spffmq4dzjxsr5l297znf3z6j5p2688")
-                + "\n\n₿ 0.89 997 180",
+                + "\n\n₿ 0.89 997 180"
+                + "\n\nIndex: 0",
             ],
             Wallet(
                 Key(
@@ -1701,7 +1702,8 @@ def test_outputs_singlesig(mocker, m5stickv, tdata):
                 + "\n\n₿ 0.10 000 000",
                 "1. Change: \n\n"
                 + format_address("2MvdUi5o3f2tnEFh9yGvta6FzptTZtkPJC8")
-                + "\n\n₿ 0.89 996 700",
+                + "\n\n₿ 0.89 996 700"
+                + "\n\nIndex: 0",
             ],
             Wallet(
                 Key(
@@ -1723,12 +1725,14 @@ def test_outputs_singlesig(mocker, m5stickv, tdata):
                 + format_address(
                     "tb1pn5kekm0xpnwd6kg8c8qfvv2fr0w5xnhw42927wem7xwk84f7gzvsvctkhp"
                 )
-                + "\n\n₿ 0.00 001 000",
+                + "\n\n₿ 0.00 001 000"
+                + "\n\nIndex: 10",
                 "1. Change: \n\n"
                 + format_address(
                     "tb1pwhn9lzpaukrjwvwe365x7hcgvtcfywwsaxcq7j04jgrfcxzdq23qhzr7wt"
                 )
-                + "\n\n₿ 0.00 007 738",
+                + "\n\n₿ 0.00 007 738"
+                + "\n\nIndex: 1",
             ],
             Wallet(
                 Key(
@@ -1847,12 +1851,14 @@ def test_outputs_multisig(mocker, m5stickv, tdata):
                 + format_address(
                     "tb1q6dac4cdyf9sfuln0kzfgswc96nlh2g98s4uyez5tvm7ymhq9ua0sa0z6h7"
                 )
-                + "\n\n₿ 0.00 200 000",
+                + "\n\n₿ 0.00 200 000"
+                + "\n\nIndex: 1",
                 "1. Change: \n\n"
                 + format_address(
                     "tb1q0xmw6txz6lp2aakdujwhhrel0m7grfvvn00nzwjda7ps06c3jwnqk7m0ww"
                 )
-                + "\n\n₿ 0.00 638 408",
+                + "\n\n₿ 0.00 638 408"
+                + "\n\nIndex: 0",
             ],
         ),
     ]
@@ -1920,12 +1926,14 @@ def test_outputs_miniscript(mocker, m5stickv, tdata):
                 + format_address(
                     "tb1qnlhau4cw3f76k583xk8p6ekd02a0dvhmqjzl7aw6ehda8r7upheskzwzea"
                 )
-                + "\n\n₿ 0.01 000 000",
+                + "\n\n₿ 0.01 000 000"
+                + "\n\nIndex: 3",
                 "1. Change: \n\n"
                 + format_address(
                     "tb1qmanyu7mm2q24esrnawjxukla9pr7s4yyzwjy2chjhsyumfe0r34q5dzsug"
                 )
-                + "\n\n₿ 0.00 495 019",
+                + "\n\n₿ 0.00 495 019"
+                + "\n\nIndex: 1",
             ],
         ),
     ]
@@ -1995,12 +2003,14 @@ def test_outputs_tr_miniscript(mocker, m5stickv, tdata):
                 + format_address(
                     "tb1pgzdsuzcewwntpm6c3xrrn5lmdc0cvnpsdyrsz7gvcq5t0kqry2rswl8vnz"
                 )
-                + "\n\n₿ 0.00 500 000",
+                + "\n\n₿ 0.00 500 000"
+                + "\n\nIndex: 5",
                 "1. Change: \n\n"
                 + format_address(
                     "tb1pt064gyzas6dnqq9p955p7ujus8z7l3xg3apxm425u72dupy3wffqjzkszd"
                 )
-                + "\n\n₿ 0.00 493 789",
+                + "\n\n₿ 0.00 493 789"
+                + "\n\nIndex: 1",
             ],
         ),
     ]
@@ -2070,12 +2080,14 @@ def test_outputs_tr_miniscript_provably_unspendable(mocker, m5stickv, tdata):
                 + format_address(
                     "tb1psawr7wemsqgvplsxu0wvk6hdqrzf5rv387xuxx43mgjnkzn932pqne6l2c"
                 )
-                + "\n\n₿ 0.00 500 000",
+                + "\n\n₿ 0.00 500 000"
+                + "\n\nIndex: 3",
                 "1. Change: \n\n"
                 + format_address(
                     "tb1pzfd2t5k93dfvsl4a3ka36jcd9n4ppuskg7vfqeeu3zjqc5p8luaqs7f0ct"
                 )
-                + "\n\n₿ 0.00 491 994",
+                + "\n\n₿ 0.00 491 994"
+                + "\n\nIndex: 1",
             ],
         ),
     ]
@@ -2542,3 +2554,42 @@ def test_fee_percent_self_transfer(mocker, m5stickv, tdata):
         assert "Spend" not in outputs[0]
         assert "Fee: ₿ 0.01 000 000" in outputs[0].replace(" ", " ")
         assert fee_percent == expected
+
+
+def test_outputs_own_index_from_checked_derivation(mocker, m5stickv, tdata):
+    """Branch and index are read from the derivation the wallet descriptor
+    checked the script against, not from an unchecked entry placed before it"""
+    from embit import bip32
+    from embit.networks import NETWORKS
+    from embit.psbt import PSBT, DerivationPath
+    from embit.script import p2wpkh
+    from krux.psbt import PSBTSigner
+    from krux.key import Key, TYPE_SINGLESIG
+    from krux.wallet import Wallet
+    from krux.qr import FORMAT_NONE
+
+    key = Key(tdata.TEST_MNEMONIC, TYPE_SINGLESIG, NETWORKS["test"])
+    wallet = Wallet(key)
+    near_path = bip32.parse_path(key.derivation + "/1/5")
+    far_path = bip32.parse_path(key.derivation + "/0/2147483000")
+    near_pub = key.root.derive(near_path).key.get_public_key()
+    far_pub = key.root.derive(far_path).key.get_public_key()
+
+    psbt = PSBT.parse(tdata.P2WPKH_PSBT)
+    own = next(out for out in psbt.outputs if out.bip32_derivations)
+    own.script_pubkey = p2wpkh(far_pub)
+    own.bip32_derivations = {
+        # matches no key of the wallet, so the descriptor never checks it
+        near_pub: DerivationPath(b"\xde\xad\xbe\xef", near_path),
+        far_pub: DerivationPath(key.fingerprint, far_path),
+    }
+
+    signer = PSBTSigner(wallet, psbt.serialize(), FORMAT_NONE)
+    output = next(out for out in signer.psbt.outputs if out.bip32_derivations)
+    first = list(output.bip32_derivations.values())[0]
+    assert first.fingerprint == b"\xde\xad\xbe\xef"
+
+    outputs, _ = signer.outputs()
+
+    assert outputs[-1].startswith("1. Self-transfer:")
+    assert outputs[-1].endswith("\n\nIndex: 2147483000")
