@@ -305,6 +305,8 @@ Upon loading the unsigned *PSBT*, you will be presented with a preview of the tr
 
 Amounts are displayed according to your locale and the International Bureau of Weights and Measures, while still adhering to the concept of the [Satcomma standard format](https://medium.com/coinmonks/the-satcomma-standard-89f1e7c2aede).
 
+Each self-transfer or change output also shows its address **Index**. Wallet software looks for funds only a limited number of addresses past the last one used, so if an output pays your wallet more than 10,000 addresses past the lowest index among the inputs, Krux warns you before the preview: your wallet software may not find those funds.
+
 <div style="clear: both"></div>
 
 <img src="../../../img/maixpy_m5stickv/sign-psbt-sign-prompt-250.png" align="right" class="m5stickv">
