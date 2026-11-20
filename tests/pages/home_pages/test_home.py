@@ -675,6 +675,7 @@ def test_load_sign_psbt_menu(mocker, amigo, tdata):
         "_pre_load_psbt_warn",
         "load_psbt",
         "_post_load_psbt_warn",
+        "_far_index_psbt_warn",
         "_fees_psbt_warn",
         "_display_transaction_for_review",
         "_sign_menu",
@@ -693,6 +694,7 @@ def test_load_sign_psbt_menu(mocker, amigo, tdata):
         ("_pre_load_psbt_warn", "assert_called_once"),
         ("load_psbt", "assert_called_once"),
         ("_post_load_psbt_warn", "assert_not_called"),
+        ("_far_index_psbt_warn", "assert_not_called"),
         ("_fees_psbt_warn", "assert_not_called"),
         ("_display_transaction_for_review", "assert_not_called"),
         ("_sign_menu", "assert_not_called"),
@@ -1984,6 +1986,89 @@ def test_unverified_amounts_warning(mocker, m5stickv):
     mocker.spy(ctx.display, "draw_centered_text")
     assert home._unverified_amounts_psbt_warn(FakeSigner(False)) is True
     assert ctx.display.draw_centered_text.call_count == 0
+
+
+def test_far_index_warning(mocker, m5stickv):
+    """The warning shows the index and aborts signing when declined"""
+    from krux.pages.home_pages.home import Home
+    from krux.input import BUTTON_ENTER, BUTTON_PAGE
+
+    class FakeSigner:
+        def __init__(self, far_own_output_index):
+            self.far_own_output_index = far_own_output_index
+
+    # Declined
+    ctx = create_ctx(mocker, [BUTTON_PAGE])
+    home = Home(ctx)
+    mocker.spy(ctx.display, "draw_centered_text")
+    assert home._far_index_psbt_warn(FakeSigner(2147483000)) is False
+    ctx.display.draw_centered_text.assert_called_with(
+        "Warning: Unusually high address index!\nIndex: 2147483000\n"
+        "Wallet software may not find these funds.",
+        highlight_prefix=":",
+    )
+
+    # Accepted
+    ctx = create_ctx(mocker, [BUTTON_ENTER])
+    home = Home(ctx)
+    assert home._far_index_psbt_warn(FakeSigner(2147483000)) is True
+
+    # Nothing to warn about, no prompt consumed
+    ctx = create_ctx(mocker, [])
+    home = Home(ctx)
+    mocker.spy(ctx.display, "draw_centered_text")
+    assert home._far_index_psbt_warn(FakeSigner(None)) is True
+    assert ctx.display.draw_centered_text.call_count == 0
+
+
+def test_sign_far_change_index_declined(mocker, m5stickv, tdata):
+    """Change at /1/2147483000 (krux#999) is flagged before the review, and
+    declining the warning ends the flow without signing"""
+    from embit.networks import NETWORKS
+    from krux.pages.home_pages.home import Home
+    from krux.pages import MENU_CONTINUE
+    from krux.wallet import Wallet
+    from krux.key import Key, TYPE_SINGLESIG, P2WPKH
+    from krux.input import BUTTON_ENTER, BUTTON_PAGE
+    from krux.qr import FORMAT_NONE
+    from krux.pages.qr_capture import QRCodeCapture
+
+    # Spends 0.01 tBTC from /0/0: 0.006 to an outside address, 0.0039 back to
+    # the wallet at /1/2147483000
+    psbt_far_change = "cHNidP8BAHECAAAAAR36xubXOkPY59ExbZr4MnPHUjjOSCWAcSqM1gAnwr6sAAAAAAD9////AsAnCQAAAAAAFgAULL/Kx6vdomNUXiQY6QFOVgK4pspw8wUAAAAAABYAFLUkGV7lvOhSJ675bySCgEjgAc0VAAAAAAABAFICAAAAASDMakFMcj+jfu7H7W7CvSA1nsyNb0UdxRPXuawEOEPnAAAAAAD/////AUBCDwAAAAAAFgAU0MSj7wnpl7bpnjl+UY/j5BoRjKEAAAAAAQEfQEIPAAAAAAAWABTQxKPvCemXtumeOX5Rj+PkGhGMoSIGAuerJTe11J6XAwmq4G6eSfNs4cn+u9ROyODRzKC0+cMZGHPF2gpUAACAAQAAgAAAAIAAAAAAAAAAAAAAIgIDbgwjw5HB+90tP31D3vaiNzp2G2PtbddIm0J77MH6kiwYc8XaClQAAIABAACAAAAAgAEAAAB4/f9/AA=="
+
+    btn_seq = [
+        BUTTON_ENTER,  # Load from QR code
+        BUTTON_PAGE,  # Decline the address index warning
+    ]
+    wallet = Wallet(
+        Key(
+            tdata.SIGNING_MNEMONIC, TYPE_SINGLESIG, NETWORKS["test"], script_type=P2WPKH
+        )
+    )
+    ctx = create_ctx(mocker, btn_seq, wallet)
+    home = Home(ctx)
+    mocker.patch.object(
+        QRCodeCapture,
+        "qr_capture_loop",
+        new=lambda self: (psbt_far_change, FORMAT_NONE),
+    )
+    mocker.spy(home, "_sign_menu")
+
+    assert home.sign_psbt() == MENU_CONTINUE
+
+    assert ctx.input.wait_for_button.call_count == len(btn_seq)
+    ctx.display.draw_centered_text.assert_has_calls(
+        [
+            mocker.call("Processing…"),
+            mocker.call(
+                "Warning: Unusually high address index!\nIndex: 2147483000\n"
+                "Wallet software may not find these funds.",
+                highlight_prefix=":",
+            ),
+        ]
+    )
+    home._sign_menu.assert_not_called()
 
 
 def test_load_sign_psbt_camera_back_is_silent(mocker, amigo, tdata):

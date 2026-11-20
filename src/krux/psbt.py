@@ -39,6 +39,14 @@ BTC_SYMBOL = "₿"
 
 MAX_POLICY_COSIGNERS_DISPLAYED = 5
 
+# Wallets look for funds a gap limit past the last address they have seen
+# used, so an output paying the wallet much further than that may never show
+# up in them. One whose address index is more than this past the smallest
+# index of the inputs is flagged, as SeedSigner does (seedsigner#1073).
+OWN_OUTPUT_INDEX_WINDOW = 10_000
+
+HARDENED_INDEX = 2**31
+
 
 class Counter(dict):
     """Helper class for dict"""
@@ -58,6 +66,9 @@ class PSBTSigner:
         self.qr_format = qr_format
         self.policy = None
         self.is_b64_file = False
+        # Set by outputs(): the highest address index of an output paying the
+        # wallet beyond OWN_OUTPUT_INDEX_WINDOW, or None
+        self.far_own_output_index = None
 
         # Parse the PSBT
         if psbt_filename:
@@ -306,6 +317,30 @@ class PSBTSigner:
             return SELF_TRANSFER, derivation[-1]
         return SPEND, None
 
+    def _smallest_input_index(self):
+        """Smallest address index among the inputs the wallet descriptor owns.
+
+        An input whose script doesn't match the derivation it claims is left
+        out, so a false claim can't move the window. With no such input the
+        window starts at 0, its narrowest.
+        """
+        indexes = []
+        if self.wallet.descriptor:
+            for inp in self.psbt.inputs:
+                if self.wallet.descriptor.owns(inp):
+                    index = self._owned_derivation(inp).derivation[-1]
+                    if index < HARDENED_INDEX:
+                        indexes.append(index)
+        return min(indexes) if indexes else 0
+
+    def _far_own_output_index(self, own_indexes):
+        """The highest of these address indexes past the window, or None"""
+        if not own_indexes:
+            return None
+        window_end = self._smallest_input_index() + OWN_OUTPUT_INDEX_WINDOW
+        far_indexes = [index for index in own_indexes if index > window_end]
+        return max(far_indexes) if far_indexes else None
+
     def _btc_render(self, amount, prefix=" "):
         from .format import format_btc
 
@@ -443,6 +478,10 @@ class PSBTSigner:
                 + self._btc_render(self_amount + change_amount)
                 + "\n\n"
             )
+
+        self.far_own_output_index = self._far_own_output_index(
+            [out[2] for out in self_transfer_list + change_list]
+        )
 
         out_amount = self_amount + change_amount + spend_amount
         resume_fee_str, _ = self._get_resume_fee(

@@ -432,6 +432,26 @@ class Home(Page):
 
         return True
 
+    def _far_index_psbt_warn(self, signer):
+        """Warn when an output pays the wallet far past the addresses in use"""
+        if signer.far_own_output_index is not None:
+            self.ctx.display.clear()
+            self.ctx.display.draw_centered_text(
+                t("Warning:")
+                + " "
+                + t("Unusually high address index!")
+                + "\n"
+                + t("Index")
+                + ": %d" % signer.far_own_output_index
+                + "\n"
+                + t("Wallet software may not find these funds."),
+                highlight_prefix=":",
+            )
+
+            return self.prompt(t("Proceed?"), BOTTOM_PROMPT_LINE)
+
+        return True
+
     def _fees_psbt_warn(self, fee_percent):
         """Warn if fees greater than 10% of what is spent"""
         if fee_percent >= 10.0:
@@ -530,6 +550,9 @@ class Home(Page):
         outputs, fee_percent = signer.outputs()
 
         if not self._unverified_amounts_psbt_warn(signer):
+            return MENU_CONTINUE
+
+        if not self._far_index_psbt_warn(signer):
             return MENU_CONTINUE
 
         if not self._fees_psbt_warn(fee_percent):

@@ -2556,6 +2556,66 @@ def test_fee_percent_self_transfer(mocker, m5stickv, tdata):
         assert fee_percent == expected
 
 
+def test_outputs_far_own_output_index(mocker, m5stickv, tdata):
+    """Outputs paying the wallet show their address index, and one far past
+    the smallest address index of the inputs is flagged"""
+    from embit import bip32
+    from embit.networks import NETWORKS
+    from embit.psbt import PSBT, DerivationPath
+    from embit.script import p2wpkh
+    from krux.psbt import PSBTSigner
+    from krux.key import Key, TYPE_SINGLESIG
+    from krux.wallet import Wallet
+    from krux.qr import FORMAT_NONE
+
+    key = Key(tdata.TEST_MNEMONIC, TYPE_SINGLESIG, NETWORKS["test"])
+    wallet = Wallet(key)
+
+    def path(branch, index):
+        return bip32.parse_path(key.derivation + "/%d/%d" % (branch, index))
+
+    def pub(branch, index):
+        return key.root.derive(path(branch, index)).key.get_public_key()
+
+    cases = [
+        # input's (branch, index), the (branch, index) its derivation claims if
+        # different, own output's (branch, index), expected flagged index
+        ((0, 0), None, (1, 0), None),
+        ((0, 0), None, (1, 10_000), None),
+        ((0, 0), None, (1, 10_001), 10_001),
+        ((0, 0), None, (1, 2_147_483_000), 2_147_483_000),
+        # a self-transfer is measured the same way
+        ((0, 0), None, (0, 2_147_483_000), 2_147_483_000),
+        # a wallet that has handed out many addresses
+        ((0, 50_000), None, (1, 50_005), None),
+        ((0, 50_000), None, (1, 60_001), 60_001),
+        # an input whose script is not at the index it claims is left out, so
+        # a false claim can't widen the window
+        ((0, 0), (0, 50_000), (1, 50_005), 50_005),
+    ]
+    for inp_at, claimed, own_at, expected in cases:
+        psbt = PSBT.parse(tdata.P2WPKH_PSBT)
+        inp = psbt.inputs[0]
+        inp.witness_utxo.script_pubkey = p2wpkh(pub(*inp_at))
+        claimed = claimed or inp_at
+        inp.bip32_derivations = {
+            pub(*claimed): DerivationPath(key.fingerprint, path(*claimed))
+        }
+        own = next(out for out in psbt.outputs if out.bip32_derivations)
+        own.script_pubkey = p2wpkh(pub(*own_at))
+        own.bip32_derivations = {
+            pub(*own_at): DerivationPath(key.fingerprint, path(*own_at))
+        }
+
+        signer = PSBTSigner(wallet, psbt.serialize(), FORMAT_NONE)
+        outputs, _ = signer.outputs()
+
+        title = "1. Change:" if own_at[0] == 1 else "1. Self-transfer:"
+        assert outputs[-1].startswith(title)
+        assert outputs[-1].endswith("\n\nIndex: %d" % own_at[1])
+        assert signer.far_own_output_index == expected
+
+
 def test_outputs_own_index_from_checked_derivation(mocker, m5stickv, tdata):
     """Branch and index are read from the derivation the wallet descriptor
     checked the script against, not from an unchecked entry placed before it"""
@@ -2593,3 +2653,4 @@ def test_outputs_own_index_from_checked_derivation(mocker, m5stickv, tdata):
 
     assert outputs[-1].startswith("1. Self-transfer:")
     assert outputs[-1].endswith("\n\nIndex: 2147483000")
+    assert signer.far_own_output_index == 2147483000
